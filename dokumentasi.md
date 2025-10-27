@@ -62,6 +62,30 @@ Bagian ini adalah ringkasan untuk pemahaman cepat mengenai arsitektur aplikasi s
 
 ## 4. Changelog - Bug Fixes & Improvements
 
+### [Tanggal: 27 Oktober 2025] - Fase 0: Penyiapan Repositori & Alur Kerja Git
+
+**Tujuan**: Membangun fondasi manajemen kode yang bersih dan terstruktur sebelum memulai refaktorisasi.
+
+**Langkah-langkah yang Telah Dilakukan:**
+
+1.  **Inisialisasi Git**: Repositori Git baru diinisialisasi pada direktori proyek.
+2.  **Koreksi `.gitignore`**: File `.gitignore` diperbaiki untuk memastikan file penting seperti `.env.example` dan `.editorconfig` dilacak oleh Git, sesuai dengan praktik terbaik.
+3.  **Koneksi ke Remote**: Proyek lokal berhasil dihubungkan ke repositori remote publik di GitHub.
+4.  **Komit Awal**: Seluruh file proyek ditambahkan dan sebuah *initial commit* dibuat sebagai dasar dari riwayat versi.
+5.  **Implementasi Branching Strategy**:
+    - Branch `master` diganti namanya menjadi `main` untuk mengikuti standar modern.
+    - Branch `dev` dibuat sebagai cabang utama untuk pengembangan.
+    - Kedua branch (`main` dan `dev`) berhasil diunggah ke GitHub.
+6.  **Pembuatan Tag Awal**: Sebuah *annotated tag* `v2.0.0-baseline` dibuat dan diunggah untuk menandai secara permanen versi kode sebelum dimulainya proses refaktorisasi.
+7.  **Pembuatan Feature Branch**: Branch `feature/refactor-pemenuhan-dokumen` dibuat dari `dev` untuk mengisolasi pekerjaan refaktorisasi Fase 1.
+
+**Hasil:**
+- ✅ Fase 0 dari Peta Jalan Pengembangan telah selesai.
+- ✅ Proyek kini memiliki alur kerja Git (Git Flow) yang terstruktur.
+- ✅ Titik awal (baseline) yang jelas telah ditandai, memungkinkan *rollback* yang aman jika diperlukan.
+
+---
+
 ### [Tanggal: 24 Oktober 2025] - Refactor & Bug Fix: Alur Navigasi Auditor Upload
 
 **Masalah yang Ditemukan:**
