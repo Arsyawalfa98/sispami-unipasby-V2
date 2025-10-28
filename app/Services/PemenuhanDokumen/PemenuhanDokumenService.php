@@ -27,117 +27,14 @@ class PemenuhanDokumenService
         $this->jadwalAmiRepo = $jadwalAmiRepo;
     }
 
-    public function getFilteredData($filters = [], $perPage = 10)
+    public function getFilteredData($filters = [])
     {
-        $user = Auth::user();
-        $activeRole = session('active_role');
-
-        // ========== DEBUG: NONAKTIFKAN DEBUG REPOSITORY ==========
-        // Debug sudah selesai, gunakan repository normal
-        $useDebugRepo = false;
-        // ========== END DEBUG ==========
-
-        // Get jadwal list
-        if (Auth::user()->hasActiveRole('Super Admin') || Auth::user()->hasActiveRole('Admin LPM')) {
-            $jadwalAmiList = $this->jadwalAmiRepo->getActiveJadwal();
-        } elseif (Auth::user()->hasActiveRole('Fakultas')) {
-            $jadwalAmiList = $this->jadwalAmiRepo->getActiveJadwal();
-            $filters['fakultas'] = $user->fakultas;
-        } else {
-            $jadwalAmiList = $this->jadwalAmiRepo->getActiveJadwal($user->prodi);
-        }
-
-        // For auditor, add schedule filters
-        if (Auth::user()->hasActiveRole('Auditor')) {
-            $jadwalAmiList = $jadwalAmiList->filter(function($jadwal) use ($user) {
-                return $jadwal->timAuditor->pluck('id')->contains($user->id);
-            });
-
-            $activeSchedules = $jadwalAmiList->map(function($jadwal) {
-                $jenjang = $this->detectJenjangFromProdi($jadwal->prodi);
-
-                return [
-                    'prodi' => $jadwal->prodi,
-                    'jenjang' => $jenjang,
-                    'lembaga' => $jadwal->standar_akreditasi
-                ];
-            });
-
-            $filters['active_schedules'] = $activeSchedules;
-        }
-
-        // Ambil semua data dari repository tanpa pagination
-        $allData = $this->kriteriaDokumenRepo->getAllKriteriaDokumenWithDetails($filters);
-        
-        // Konversi hasil ke collection
-        $kriteriaDokumenCollection = collect($allData);
-        
-        if (Auth::user()->hasActiveRole('Auditor')) {
-            foreach ($kriteriaDokumenCollection as $item) {
-                $item->filtered_details = collect($this->getFilteredDetails($item, $jadwalAmiList));
-            }
-        } else {
-            foreach ($kriteriaDokumenCollection as $item) {
-                $item->filtered_details = collect($this->getFilteredDetails($item, $jadwalAmiList));
-            }
-        }
-
-        // Filter detail di dalam setiap item, bukan filter item keseluruhan
-        foreach ($kriteriaDokumenCollection as $item) {
-            if ($item->filtered_details) {
-                $item->filtered_details = $item->filtered_details->filter(function($detail) {
-                    $hasJadwal = !empty($detail['jadwal']);
-                    $statusOk = $detail['status'] !== 'Belum ada jadwal';
-                    return $hasJadwal && $statusOk;
-                });
-            }
-        }
-
-        // Setelah filter detail, hapus item yang tidak memiliki detail valid sama sekali
-        $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function($item) {
-            return $item->filtered_details && $item->filtered_details->count() > 0;
-        });
-
-        // Filter tambahan untuk auditor
-        if (Auth::user()->hasActiveRole('Auditor')) {
-            $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function($item) {
-                return $item->filtered_details && $item->filtered_details->contains(function($detail) {
-                    return !empty($detail['jadwal']);
-                });
-            });
-        } 
-        // Filter untuk Fakultas - hanya tampilkan item yang memiliki detail dengan fakultas yang sesuai
-        elseif (Auth::user()->hasActiveRole('Fakultas')) {
-            $userFakultas = $user->fakultas;
-            
-            $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function($item) use ($userFakultas) {
-                return $item->filtered_details && $item->filtered_details->contains(function($detail) use ($userFakultas) {
-                    return isset($detail['fakultas']) && $detail['fakultas'] == $userFakultas;
-                });
-            });
-        }
-
-        // Setelah semua filter diterapkan, ambil total yang sebenarnya
-        $totalAfterFilters = $kriteriaDokumenCollection->count();
-        
-        // Hitung pagination secara manual
-        $page = request()->get('page', 1);
-        $offset = ($page - 1) * $perPage;
-        
-        // Ambil item untuk halaman saat ini
-        $items = $kriteriaDokumenCollection->slice($offset, $perPage)->values();
-        
-        // Buat paginator dengan total yang benar (setelah filter)
-        return new \Illuminate\Pagination\LengthAwarePaginator(
-            $items,
-            $totalAfterFilters,
-            $perPage,
-            $page,
-            ['path' => request()->url()]
-        );
+        // The repository's getKriteriaDokumenQuery already handles role-based filtering
+        // and the initial filters.
+        return $this->kriteriaDokumenRepo->getKriteriaDokumenQuery($filters);
     }
 
-    protected function getFilteredDetails($item, $jadwalAmiList)
+    public function getFilteredDetails($item, $jadwalAmiList)
     {
         $user = Auth::user();
 

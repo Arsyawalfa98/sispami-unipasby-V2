@@ -31,38 +31,99 @@ class PemenuhanDokumenController extends Controller
         $filters = $request->only(['search']);
         $perPage = $request->get('per_page', 5); // Default 5 item per halaman
         
-        // Ambil data dari service tanpa filter status
-        $kriteriaDokumen = $this->pemenuhanDokumenService->getFilteredData($filters, $perPage);
+        // Ambil Query Builder dari service
+        $query = $this->pemenuhanDokumenService->getFilteredData($filters);
         
-        // Dapatkan semua nilai status yang unik untuk dropdown
-        $statusOptions = $this->getUniqueStatuses($kriteriaDokumen);
-        
-        // Dapatkan semua tahun yang unik
-        $yearOptions = $this->getUniqueYears($kriteriaDokumen);
+        // Dapatkan semua tahun yang unik dari database
+        $yearOptions = KriteriaDokumen::distinct()->pluck('periode_atau_tahun')->filter()->sort()->values()->all();
         
         // Dapatkan semua jenjang dari model Jenjang
         $jenjangOptions = \App\Models\Jenjang::pluck('nama', 'id')->toArray();
         
-        // Filter status di sisi controller setelah data diambil dari service
         $selectedStatus = $request->get('status');
         $selectedYear = $request->get('year');
         $selectedJenjang = $request->get('jenjang');
-        
-        if ($selectedStatus && $selectedStatus !== 'all') {
-            // Filter collection berdasarkan status yang dipilih
-            $kriteriaDokumen = $this->filterByStatus($kriteriaDokumen, $selectedStatus);
-        }
-        
+
+        // Apply filters to the Query Builder
         if ($selectedYear && $selectedYear !== 'all') {
-            // Filter collection berdasarkan tahun yang dipilih
-            $kriteriaDokumen = $this->filterByYear($kriteriaDokumen, $selectedYear);
+            $query->where('periode_atau_tahun', $selectedYear);
         }
         
         if ($selectedJenjang && $selectedJenjang !== 'all') {
-            // Filter collection berdasarkan jenjang yang dipilih
-            $kriteriaDokumen = $this->filterByJenjang($kriteriaDokumen, $selectedJenjang);
+            $query->where('jenjang_id', $selectedJenjang);
         }
-        
+
+        // Apply pagination
+        $kriteriaDokumenPaginator = $query->paginate($perPage)->withQueryString();
+        $kriteriaDokumenCollection = $kriteriaDokumenPaginator->getCollection();
+
+        // --- POST-PAGINATION PROCESSING FOR STATUS FILTER AND filtered_details ---
+        $jadwalAmiList = $this->getJadwalAmiListForFiltering($user);
+        $allStatuses = collect();
+
+        foreach ($kriteriaDokumenCollection as $item) {
+            // Apply getFilteredDetails to each item in the paginated collection
+            $item->filtered_details = collect($this->pemenuhanDokumenService->getFilteredDetails($item, $jadwalAmiList));
+            
+            // Filter detail di dalam setiap item, bukan filter item keseluruhan
+            if ($item->filtered_details) {
+                $item->filtered_details = $item->filtered_details->filter(function($detail) {
+                    $hasJadwal = !empty($detail['jadwal']);
+                    $statusOk = $detail['status'] !== 'Belum ada jadwal';
+                    return $hasJadwal && $statusOk;
+                });
+            }
+
+            // Collect all unique statuses for dropdown
+            if ($item->filtered_details) {
+                $allStatuses = $allStatuses->merge($item->filtered_details->pluck('status'));
+            }
+        }
+
+        // After filtering details, remove items that do not have valid details at all
+        $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function($item) {
+            return $item->filtered_details && $item->filtered_details->count() > 0;
+        });
+
+        // Filter tambahan untuk auditor (jika belum ditangani di repository)
+        if ($user->hasActiveRole('Auditor')) {
+            $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function($item) {
+                return $item->filtered_details && $item->filtered_details->contains(function($detail) {
+                    return !empty($detail['jadwal']);
+                });
+            });
+        } 
+        // Filter untuk Fakultas - hanya tampilkan item yang memiliki detail dengan fakultas yang sesuai
+        elseif ($user->hasActiveRole('Fakultas')) {
+            $userFakultas = $user->fakultas;
+            $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function($item) use ($userFakultas) {
+                return $item->filtered_details && $item->filtered_details->contains(function($detail) use ($userFakultas) {
+                    return isset($detail['fakultas']) && $detail['fakultas'] == $userFakultas;
+                });
+            });
+        }
+
+        // Apply status filter to the paginated collection
+        if ($selectedStatus && $selectedStatus !== 'all') {
+            $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function ($item) use ($selectedStatus) {
+                return $item->filtered_details && $item->filtered_details->contains(function ($detail) use ($selectedStatus) {
+                    return isset($detail['status']) && $detail['status'] === $selectedStatus;
+                });
+            });
+        }
+
+        // Re-create paginator with the filtered collection
+        $kriteriaDokumen = new \Illuminate\Pagination\LengthAwarePaginator(
+            $kriteriaDokumenCollection->values(), // Reset keys
+            $kriteriaDokumenCollection->count(), // New total count
+            $perPage,
+            $kriteriaDokumenPaginator->currentPage(),
+            ['path' => $kriteriaDokumenPaginator->path(), 'query' => $request->query()]
+        );
+
+        // Dapatkan semua nilai status yang unik untuk dropdown
+        $statusOptions = $allStatuses->unique()->values()->all();
+
         return view('pemenuhan-dokumen.index', compact(
             'kriteriaDokumen', 
             'statusOptions', 
@@ -74,107 +135,7 @@ class PemenuhanDokumenController extends Controller
         ));
     }
     
-    /**
-     * Mendapatkan semua nilai status unik dari dokumen
-     */
-    private function getUniqueStatuses($kriteriaDokumen)
-    {
-        $statuses = collect();
-        
-        foreach ($kriteriaDokumen as $item) {
-            foreach ($item->filtered_details as $detail) {
-                if (isset($detail['status'])) {
-                    $statuses->push($detail['status']);
-                }
-            }
-        }
-        
-        return $statuses->unique()->values()->all();
-    }
-    
-    /**
-     * Mendapatkan semua tahun unik dari dokumen
-     */
-    private function getUniqueYears($kriteriaDokumen)
-    {
-        $years = collect();
-        
-        foreach ($kriteriaDokumen as $item) {
-            if (isset($item->periode_atau_tahun)) {
-                $years->push($item->periode_atau_tahun);
-            }
-        }
-        
-        return $years->unique()->values()->all();
-    }
-    
-    /**
-     * Filter collection berdasarkan status
-     */
-    private function filterByStatus($kriteriaDokumen, $status)
-    {
-        // Kita perlu mengkloning collection untuk menghindari perubahan pada collection asli
-        $filteredCollection = new LengthAwarePaginator(
-            $kriteriaDokumen->getCollection()->filter(function ($item) use ($status) {
-                // Filter detail berdasarkan status
-                $filteredDetails = $item->filtered_details->filter(function ($detail) use ($status) {
-                    return isset($detail['status']) && $detail['status'] === $status;
-                });
-                
-                // Jika setelah filtering masih ada detail, simpan dan update filtered_details
-                if ($filteredDetails->isNotEmpty()) {
-                    $item->filtered_details = $filteredDetails;
-                    return true;
-                }
-                
-                return false;
-            }),
-            $kriteriaDokumen->total(), // Total asli dari paginator
-            $kriteriaDokumen->perPage(),
-            $kriteriaDokumen->currentPage(),
-            ['path' => $kriteriaDokumen->path()]
-        );
-        
-        return $filteredCollection;
-    }
-    
-    /**
-     * Filter collection berdasarkan tahun
-     */
-    private function filterByYear($kriteriaDokumen, $year)
-    {
-        // Filter berdasarkan tahun
-        $filteredCollection = new LengthAwarePaginator(
-            $kriteriaDokumen->getCollection()->filter(function ($item) use ($year) {
-                return isset($item->periode_atau_tahun) && $item->periode_atau_tahun == $year;
-            }),
-            $kriteriaDokumen->total(),
-            $kriteriaDokumen->perPage(),
-            $kriteriaDokumen->currentPage(),
-            ['path' => $kriteriaDokumen->path()]
-        );
-        
-        return $filteredCollection;
-    }
-    
-    /**
-     * Filter collection berdasarkan jenjang
-     */
-    private function filterByJenjang($kriteriaDokumen, $jenjangNama)
-    {
-        // Filter berdasarkan jenjang
-        $filteredCollection = new LengthAwarePaginator(
-            $kriteriaDokumen->getCollection()->filter(function ($item) use ($jenjangNama) {
-                return isset($item->jenjang) && $item->jenjang->nama === $jenjangNama;
-            }),
-            $kriteriaDokumen->total(),
-            $kriteriaDokumen->perPage(),
-            $kriteriaDokumen->currentPage(),
-            ['path' => $kriteriaDokumen->path()]
-        );
-        
-        return $filteredCollection;
-    }
+
 
 public function showGroup($lembagaId, $jenjangId)
 {
@@ -833,5 +794,40 @@ public function showGroup($lembagaId, $jenjangId)
             'jenjangId' => $jenjangId,
             'selectedProdi' => $selectedProdi
         ];
+    }
+
+    /**
+     * Mengambil daftar jadwal AMI yang relevan berdasarkan peran pengguna.
+     * Digunakan untuk memfilter detail kriteria dokumen.
+     *
+     * @param \App\Models\User $user
+     * @return \Illuminate\Support\Collection
+     */
+    private function getJadwalAmiListForFiltering($user)
+    {
+        $jadwalAmiRepo = app('App\\Repositories\\PemenuhanDokumen\\JadwalAmiRepository');
+        $pemenuhanDokumenService = app('App\\Services\\PemenuhanDokumen\\PemenuhanDokumenService');
+
+        if ($user->hasActiveRole('Super Admin') || $user->hasActiveRole('Admin LPM')) {
+            $jadwalAmiList = $jadwalAmiRepo->getActiveJadwal();
+        } elseif ($user->hasActiveRole('Fakultas')) {
+            $jadwalAmiList = $jadwalAmiRepo->getActiveJadwal();
+            // Note: The 'fakultas' filter was applied to $filters in service,
+            // but here we need to filter the list directly if it's not handled by the main query.
+            // For now, we assume main query handles it.
+        } else {
+            $jadwalAmiList = $jadwalAmiRepo->getActiveJadwal($user->prodi);
+        }
+
+        // For auditor, filter jadwal list
+        if ($user->hasActiveRole('Auditor')) {
+            $jadwalAmiList = $jadwalAmiList->filter(function($jadwal) use ($user) {
+                return $jadwal->timAuditor->pluck('id')->contains($user->id);
+            });
+            // The activeSchedules mapping was used to build filters for the main query.
+            // Here, we just need the filtered jadwalAmiList.
+        }
+
+        return $jadwalAmiList;
     }
 }

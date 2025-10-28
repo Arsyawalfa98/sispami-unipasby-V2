@@ -49,8 +49,8 @@ Bagian ini adalah ringkasan untuk pemahaman cepat mengenai arsitektur aplikasi s
 
 ### Fase 2: Penguatan Keamanan
 *Tujuan: Mengamankan titik masuk dan mengurangi predictability.*
-1.  **Redirect Root Route**: Ubah rute `/` agar redirect ke halaman login.
-2.  **Pindahkan URL Login**: Ganti URL `/login` menjadi sesuatu yang tidak umum (misal: `/panel-auth`).
+1.  **Redirect Root Route**: Ubah rute `/` agar redirect ke halaman login. (✅ **Selesai**: Diimplementasikan untuk redirect ke Mitra Portal)
+2.  **Pindahkan URL Login**: Ganti URL `/login` menjadi sesuatu yang tidak umum (misal: `/panel-auth`). (✅ **Selesai**: Diimplementasikan untuk redirect ke Mitra Portal)
 3.  **(Opsional) Samarkan ID di URL**: Implementasikan library seperti `vinkla/laravel-hashids` untuk mengubah URL seperti `/jadwal-ami/15` menjadi `/jadwal-ami/L3aV9`.
 
 ### Fase 3: Peningkatan Jangka Panjang
@@ -598,3 +598,47 @@ php artisan cache:clear
 - **Documentation**: User manual untuk fitur switch prodi perlu dibuat
 
 ---
+
+### [Tanggal: 28 Oktober 2025] - Fase 1: Refaktorisasi Backend & Optimasi Query (Selesai)
+
+**Tujuan**: Mengatasi masalah performa "Filter di Sisi PHP" dengan memindahkan logika filter dan paginasi ke tingkat database untuk metode `index()` pada controller-controller utama.
+
+**Perubahan yang Dilakukan:**
+
+1.  **`app/Repositories/PemenuhanDokumen/KriteriaDokumenRepository.php`**:
+    *   Dibuat metode `public function getKriteriaDokumenQuery($filters = [])` untuk memusatkan logika pembangunan query utama dan mengembalikan Query Builder Eloquent.
+    *   Metode `getAllKriteriaDokumenWithDetails()` dan `getKriteriaDokumenWithDetails()` diperbarui untuk menggunakan `getKriteriaDokumenQuery()` dan menerapkan `->get()` atau `->paginate()` sebagai langkah akhir.
+    *   **Perbaikan Bug**: Mengatasi `ParseError` yang disebabkan oleh *backslash* yang salah pada `\DB::raw()` dan `\App\Models\Jenjang`.
+
+2.  **`app/Services/PemenuhanDokumen/PemenuhanDokumenService.php`**:
+    *   Metode `getFilteredData($filters = [])` disederhanakan secara drastis untuk hanya memanggil `kriteriaDokumenRepo->getKriteriaDokumenQuery($filters)` dan mengembalikan Query Builder. Semua filter *in-memory* dan paginasi manual dihapus dari metode ini.
+    *   Visibilitas metode `getFilteredDetails()` diubah dari `protected` menjadi `public` agar dapat diakses oleh *controller*.
+
+3.  **`app/Services/MonevKts/MonevService.php`**:
+    *   Metode `getFilteredData($filters = [])` disederhanakan untuk hanya memanggil `kriteriaDokumenRepo->getKriteriaDokumenQuery($filters)` dan mengembalikan Query Builder.
+    *   Visibilitas metode `getFilteredDetailsWithInfo()` diubah dari `protected` menjadi `public`.
+    *   **Perbaikan Bug**: Menambahkan kembali metode `private function generateGrupKey($item)` ke dalam service untuk mengatasi `Call to undefined method` error.
+
+4.  **`app/Http/Controllers/PemenuhanDokumenController.php`**, **`app/Http/Controllers/ForecastingController.php`**, **`app/Http/Controllers/MonevController.php`**, **`app/Http/Controllers/KelengkapanDokumenController.php`**:
+    *   Metode `index(Request $request)` di setiap *controller* ini direfaktor:
+        *   Mendapatkan Query Builder dari *service* terkait.
+        *   Menerapkan filter `year` dan `jenjang` langsung ke Query Builder.
+        *   Menerapkan paginasi (`->paginate()`) sebagai langkah terakhir.
+        *   Mengimplementasikan pemrosesan pasca-paginasi untuk `filtered_details` dan `status` filtering pada *collection* yang sudah dipaginasi.
+        *   Menambahkan metode *helper* `private function getJadwalAmiListForFiltering($user)` untuk mendukung pemrosesan pasca-paginasi.
+        *   Menghapus semua metode *helper* berbasis *collection* yang tidak lagi digunakan (`getUniqueStatuses`, `getUniqueYears`, `filterByStatus`, `filterByYear`, `filterByJenjang`).
+    *   **`app/Http/Controllers/MonevController.php` (Spesifik)**:
+        *   Memindahkan metode `private function batchCalculatePerGrup($kriteriaDokumenCollection, $statusTemuan = 'KETIDAKSESUAIAN')` dan `private function generateGrupKey($item)` dari `MonevService` ke *controller* ini.
+        *   Mengintegrasikan kembali logika perhitungan `dataPerGrup` dan penambahan *flag* `has_kts_in_group` / `has_tercapai_in_group` ke dalam metode `index()` untuk mengembalikan fungsionalitas *button* status temuan.
+
+5.  **`resources/views/layouts/admin.blade.php`**:
+    *   **Perbaikan Bug Frontend**: Mengoreksi referensi *file JavaScript* `jquery-easing` dari `jquery.easing.min.js` menjadi `jquery.easing.1.3.js` untuk mengatasi *error* 404 dan mengembalikan fungsionalitas *sidebar* dan *dropdown*.
+
+6.  **`package.json`**:
+    *   Versi Bootstrap sementara diturunkan ke `^4.6.2` untuk *troubleshooting*, kemudian dikembalikan ke `^5.3.8` sesuai permintaan.
+
+**Hasil:**
+- ✅ Fase 1 dari Peta Jalan Pengembangan telah selesai untuk semua *controller* target.
+- ✅ Masalah performa "Filter di Sisi PHP" telah teratasi untuk metode `index()` di `PemenuhanDokumenController`, `ForecastingController`, `MonevController`, dan `KelengkapanDokumenController`.
+- ✅ Fungsionalitas *frontend* yang terganggu telah diperbaiki.
+

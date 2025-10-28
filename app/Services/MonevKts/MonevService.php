@@ -36,112 +36,11 @@ class MonevService
     /**
      * UNTUK INDEX - Logic yang sudah benar
      */
-    public function getFilteredData($filters = [], $perPage = 10)
+    public function getFilteredData($filters = [])
     {
-        $user = Auth::user();
-
-        //Ambil status_temuan dari filter (default: KETIDAKSESUAIAN)
-        $statusTemuan = $filters['status_temuan'] ?? 'KETIDAKSESUAIAN';
-
-        // STEP 1: Ambil jadwal sesuai role
-        if (Auth::user()->hasActiveRole('Super Admin') || Auth::user()->hasActiveRole('Admin LPM')) {
-            $jadwalAmiList = $this->jadwalAmiRepo->getActiveJadwal();
-        } elseif (Auth::user()->hasActiveRole('Fakultas')) {
-            $jadwalAmiList = $this->jadwalAmiRepo->getActiveJadwal();
-            $filters['fakultas'] = $user->fakultas;
-        } else {
-            $jadwalAmiList = $this->jadwalAmiRepo->getActiveJadwal($user->prodi);
-        }
-
-        // For auditor, add schedule filters
-        if (Auth::user()->hasActiveRole('Auditor')) {
-            $jadwalAmiList = $jadwalAmiList->filter(function ($jadwal) use ($user) {
-                return $jadwal->timAuditor->pluck('id')->contains($user->id);
-            });
-
-            $activeSchedules = $jadwalAmiList->map(function ($jadwal) {
-                $jenjang = $this->detectJenjangFromProdi($jadwal->prodi);
-
-                return [
-                    'prodi' => $jadwal->prodi,
-                    'jenjang' => $jenjang,
-                    'lembaga' => $jadwal->standar_akreditasi
-                ];
-            });
-
-            $filters['active_schedules'] = $activeSchedules;
-        }
-
-        // STEP 2: Ambil semua data dari repository
-        $allData = $this->kriteriaDokumenRepo->getAllKriteriaDokumenWithDetails($filters);
-        $kriteriaDokumenCollection = collect($allData);
-
-        // STEP 3: Batch hitung berdasarkan status_temuan
-        $dataPerGrup = $this->batchCalculatePerGrup($kriteriaDokumenCollection, $statusTemuan); // ← CHANGED method name & param
-
-        // STEP 4: Map data dengan info status_temuan
-        foreach ($kriteriaDokumenCollection as $item) {
-            $item->filtered_details = collect($this->getFilteredDetailsWithInfo($item, $jadwalAmiList, $dataPerGrup)); // ← CHANGED method name
-
-            // STEP 5: Ambil total berdasarkan status_temuan
-            $grupKey = $this->generateGrupKey($item);
-            $totalInGroup = $dataPerGrup[$grupKey]['total'] ?? 0;
-
-            // Set flag untuk button logic (dynamic property name)
-            if ($statusTemuan === 'KETIDAKSESUAIAN') {
-                $item->has_kts_in_group = $totalInGroup > 0;
-                $item->total_kts_in_group = $totalInGroup;
-            } elseif ($statusTemuan === 'TERCAPAI') {
-                $item->has_tercapai_in_group = $totalInGroup > 0;
-                $item->total_tercapai_in_group = $totalInGroup;
-            }
-        }
-
-        // STEP 6: Filter sesuai role dan jadwal
-        foreach ($kriteriaDokumenCollection as $item) {
-            if ($item->filtered_details) {
-                $item->filtered_details = $item->filtered_details->filter(function ($detail) {
-                    $hasJadwal = !empty($detail['jadwal']);
-                    $statusOk = $detail['status'] !== 'Belum ada jadwal';
-                    return $hasJadwal && $statusOk;
-                });
-            }
-        }
-
-        // Hapus item yang tidak memiliki detail valid
-        $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function ($item) {
-            return $item->filtered_details && $item->filtered_details->count() > 0;
-        });
-
-        // Filter tambahan untuk auditor dan fakultas
-        if (Auth::user()->hasActiveRole('Auditor')) {
-            $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function ($item) {
-                return $item->filtered_details && $item->filtered_details->contains(function ($detail) {
-                    return !empty($detail['jadwal']);
-                });
-            });
-        } elseif (Auth::user()->hasActiveRole('Fakultas')) {
-            $userFakultas = $user->fakultas;
-            $kriteriaDokumenCollection = $kriteriaDokumenCollection->filter(function ($item) use ($userFakultas) {
-                return $item->filtered_details && $item->filtered_details->contains(function ($detail) use ($userFakultas) {
-                    return isset($detail['fakultas']) && $detail['fakultas'] == $userFakultas;
-                });
-            });
-        }
-
-        // Pagination
-        $totalAfterFilters = $kriteriaDokumenCollection->count();
-        $page = request()->get('page', 1);
-        $offset = ($page - 1) * $perPage;
-        $items = $kriteriaDokumenCollection->slice($offset, $perPage)->values();
-
-        return new LengthAwarePaginator(
-            $items,
-            $totalAfterFilters,
-            $perPage,
-            $page,
-            ['path' => request()->url()]
-        );
+        // The repository's getKriteriaDokumenQuery already handles role-based filtering
+        // and a significant portion of initial filters.
+        return $this->kriteriaDokumenRepo->getKriteriaDokumenQuery($filters);
     }
 
     /**
@@ -368,56 +267,9 @@ class MonevService
         ];
     }
 
-    /**
-     * HELPER METHODS - Copy dari yang sudah benar di index
-     */
-    private function batchCalculatePerGrup($kriteriaDokumenCollection, $statusTemuan = 'KETIDAKSESUAIAN')
-    {
-        $data = [];
 
-        $groups = $kriteriaDokumenCollection->groupBy(function ($item) {
-            return $this->generateGrupKey($item);
-        });
 
-        foreach ($groups as $grupKey => $items) {
-            $firstItem = $items->first();
-
-            $allKriteriaIds = KriteriaDokumen::where('lembaga_akreditasi_id', $firstItem->lembaga_akreditasi_id)
-                ->where('jenjang_id', $firstItem->jenjang_id)
-                ->where('periode_atau_tahun', $firstItem->periode_atau_tahun)
-                ->pluck('id');
-
-            $allProdiInGroup = [];
-            if ($firstItem->lembagaAkreditasi && $firstItem->lembagaAkreditasi->lembagaAkreditasiDetail) {
-                $allProdiInGroup = $firstItem->lembagaAkreditasi->lembagaAkreditasiDetail->pluck('prodi')->toArray();
-            }
-
-            // ⭐ Query berdasarkan status_temuan (DINAMIS)
-            $perProdi = PenilaianKriteria::select('prodi', \DB::raw('COUNT(*) as count'))
-                ->whereIn('kriteria_dokumen_id', $allKriteriaIds)
-                ->whereIn('prodi', $allProdiInGroup)
-                ->where('status_temuan', $statusTemuan) // ← Filter dinamis
-                ->groupBy('prodi')
-                ->pluck('count', 'prodi')
-                ->toArray();
-
-            $total = array_sum($perProdi);
-
-            $data[$grupKey] = [
-                'per_prodi' => $perProdi,
-                'total' => $total
-            ];
-        }
-
-        return $data;
-    }
-
-    private function generateGrupKey($item)
-    {
-        return $item->lembaga_akreditasi_id . '_' . $item->jenjang_id . '_' . $item->periode_atau_tahun;
-    }
-
-    protected function getFilteredDetailsWithInfo($item, $jadwalAmiList, $ktsDataPerGrup)
+    public function getFilteredDetailsWithInfo($item, $jadwalAmiList, $ktsDataPerGrup)
     {
         $user = Auth::user();
 
@@ -669,5 +521,10 @@ class MonevService
         }
 
         return null;
+    }
+
+    private function generateGrupKey($item)
+    {
+        return $item->lembaga_akreditasi_id . '_' . $item->jenjang_id . '_' . $item->periode_atau_tahun;
     }
 }
