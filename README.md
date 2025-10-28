@@ -100,3 +100,45 @@ Auth::user()->active_fakultas
 - **Mitra Portal Integration**: Redirect `/` dan `/login` ke Mitra Portal dengan emergency access option untuk akses langsung saat urgent
 
 Lihat `dokumentasi.md` untuk detail lengkap penggunaan tools.
+
+## Langkah-langkah Instalasi
+
+Berikut adalah langkah-langkah untuk melakukan setup proyek dari awal setelah melakukan `git clone`:
+
+1.  **Clone Repository**
+    ```bash
+    git clone <alamat-repository-anda>
+    cd <nama-folder-proyek>
+    ```
+
+2.  **Buat File Environment**
+    Salin file contoh `.env`.
+    ```bash
+    cp .env.example .env
+    ```
+    Setelah itu, buka file `.env` dan sesuaikan konfigurasi database (`DB_DATABASE`, `DB_USERNAME`, `DB_PASSWORD`, dll.) dan `APP_URL`.
+
+3.  **Instal Dependensi PHP**
+    Perintah ini akan menginstal semua library PHP yang dibutuhkan dan membuat folder `vendor/`.
+    ```bash
+    composer install
+    ```
+
+4.  **Instal Dependensi Frontend**
+    Perintah ini akan menginstal semua library JavaScript.
+    ```bash
+    npm install
+    ```
+
+5.  **Build Aset Frontend**
+    Perintah ini akan meng-compile aset dan membuat folder `public/vendor/` secara otomatis.
+    ```bash
+    npm run dev
+    ```
+
+6.  **Generate Application Key**
+    ```bash
+    php artisan key:generate
+    ```
+
+Setelah 6 langkah ini, aplikasi Anda seharusnya sudah siap dijalankan di server lokal Anda (seperti Laragon atau lainnya).
