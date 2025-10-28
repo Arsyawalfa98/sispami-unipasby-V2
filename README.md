@@ -1,6 +1,6 @@
-# SISPAMI UNIPASBY (Sistem Penjaminan Mutu Internal Universitas PGRI Adi Buana)
+# SISPAMI (Sistem Penjaminan Mutu Internal)
 
-Aplikasi web berbasis Laravel yang dirancang untuk mengelola siklus Sistem Penjaminan Mutu Internal (SPMI) di lingkungan Universitas PGRI Adi Buana Surabaya.
+Aplikasi web berbasis Laravel yang dirancang untuk mengelola siklus Sistem Penjaminan Mutu Internal (SPMI)
 
 ## Teknologi Utama
 - Framework: Laravel
