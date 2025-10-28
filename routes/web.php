@@ -34,12 +34,12 @@ use App\Http\Controllers\MonevController;
 
 // PRODUCTION: Redirect ke Mitra Portal
 // EMERGENCY ACCESS: Uncomment kode di bawah jika perlu akses langsung
-Route::get('/', function () {
-    return redirect()->away('https://mitra.unipasby.ac.id');
-});
 // Route::get('/', function () {
-//     return view('welcome');
+//     return redirect()->away('https://mitra.unipasby.ac.id');
 // });
+Route::get('/', function () {
+    return view('welcome');
+});
 // Route::get('/', function () {
 //     abort(404);
 // });
@@ -49,9 +49,9 @@ Auth::routes(['register' => false]);
 
 // PRODUCTION: Redirect login ke Mitra Portal
 // EMERGENCY ACCESS: Uncomment kode di bawah jika perlu akses langsung
-Route::get('/login', function () {
-    return redirect()->away('https://mitra.unipasby.ac.id');
-})->name('login');
+// Route::get('/login', function () {
+//     return redirect()->away('https://mitra.unipasby.ac.id');
+// })->name('login');
 // Route::get('/login', function () {
 //     abort(404);
 // })->name('login');

@@ -12,4 +12,9 @@ const mix = require('laravel-mix');
  */
 
 mix.js('resources/js/app.js', 'public/js')
-   .sass('resources/sass/app.scss', 'public/css');
+   .sass('resources/sass/app.scss', 'public/css')
+   .copy('node_modules/jquery/dist', 'public/vendor/jquery')
+   .copy('node_modules/bootstrap/dist', 'public/vendor/bootstrap')
+   .copy('node_modules/@fortawesome/fontawesome-free', 'public/vendor/fontawesome-free')
+   .copy('node_modules/jquery-easing', 'public/vendor/jquery-easing')
+   .copy('node_modules/datatables.net-bs4', 'public/vendor/datatables.net-bs4');
